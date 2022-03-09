@@ -21,13 +21,13 @@ class BoomGan():
 
     def __init__(self,
                  network_pkl="https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-r-afhqv2-512x512.pkl",
-                 audio_filename="sample_short.mp3", truncation_psi=1):
+                 audio_filename="shiko_short.mp3", truncation_psi=1):
         in_dir = "in"
         self.out_dir = "out"
         self.out = os.path.join(self.out_dir, "video.mp4")
         self.input = os.path.join(in_dir, audio_filename)
         self.psi = truncation_psi
-        self.fps = 30
+        self.fps = 24
         self.batch_size = 10
 
         # load audio
@@ -86,13 +86,12 @@ class BoomGan():
         print("Rendering Video...")
         # render video alone
         n, height, width, channels = frames.shape
-        exact_fps = int(self.total_frames / self.audio_duration)
+        exact_fps = int(n / self.audio_duration)
         temp_vidpath = os.path.join(self.out_dir,"only_vid.mp4")
-        breakpoint()
         process = (
             ffmpeg
-                .input('pipe:', format='rawvideo', pix_fmt='rgb24', s='{}x{}'.format(width, height))
-                .output(temp_vidpath, pix_fmt='yuv420p', vcodec=vcodec, r=exact_fps)
+                .input('pipe:', format='rawvideo', pix_fmt='rgb24', s='{}x{}'.format(width, height), r=self.fps)
+                .output(temp_vidpath, pix_fmt='yuv420p', vcodec=vcodec, r=self.fps)
                 .global_args('-y')
                 .overwrite_output()
                 .run_async(pipe_stdin=True)
@@ -108,8 +107,9 @@ class BoomGan():
 
         # add audio and save
         audio = ffmpeg.input(self.input)
+
         video = ffmpeg.input(temp_vidpath)
-        ffmpeg.concat(video, audio, v=1, a=1).output(self.out, pix_fmt='yuv420p', vcodec=vcodec, r=exact_fps).global_args('-y').run()
+        ffmpeg.concat(video, audio, v=1, a=1).output(self.out, pix_fmt='yuv420p', vcodec=vcodec, r=self.fps).global_args('-y').run()
 
 if __name__ == "__main__":
     bg = BoomGan()
