@@ -13,33 +13,10 @@ import librosa
 import warnings
 import ffmpeg
 import click
+from util.geometry import make_orthonormal_vector, random_circle
+
 
 warnings.filterwarnings("ignore", category=Warning)
-
-
-def orthogonalize(normal, non_ortho):
-    h = normal * non_ortho
-    return non_ortho - normal * h
-
-
-def make_orthonormal_vector(normal, dims=512):
-    # random unit vector
-    rand_dir = np.random.randn(dims)
-
-    # make orthonormal
-    result = orthogonalize(normal, rand_dir)
-    return result / np.linalg.norm(result)
-
-
-def random_circle(radius, ndim):
-    '''Given a radius, parametrizes a random circle'''
-    n1 = np.random.randn(ndim)
-    n1 /= np.linalg.norm(n1)
-    n2 = make_orthonormal_vector(n1, ndim)
-
-    def circle(theta):
-        return np.repeat(n1[None, :], theta.shape[0], axis=0) * np.cos(theta)[:, None] * radius + np.repeat(n2[None, :], theta.shape[0], axis=0) * np.sin(theta)[:, None] * radius
-    return circle
 
 
 class BoomGan:
@@ -52,11 +29,13 @@ class BoomGan:
         self.batch_size = 10
         self.stretch = stretch
         self.mode = mode
+
         # load audio
         try:
-            self.audio = librosa.load(self.input)[0]
+            self.audio, sampling_rate = librosa.load(self.input)
         except FileNotFoundError:
             print("Filepath invalid")
+
         self.audio_duration = librosa.get_duration(self.audio)
         self.total_frames = int(np.ceil(self.fps * self.audio_duration))
         bpm, self.beats = librosa.beat.beat_track(self.audio, units="time")
