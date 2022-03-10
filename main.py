@@ -43,14 +43,14 @@ def random_circle(radius, ndim):
 
 
 class BoomGan:
-    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode):
+    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch):
         self.out_dir = out_dir
         self.out = os.path.join(self.out_dir, "video.mp4")
         self.input = os.path.join(in_dir, audio_file)
         self.psi = truncation_psi
         self.fps = 24
         self.batch_size = 10
-        self.stretch = 20
+        self.stretch = stretch
         self.mode = mode
         # load audio
         try:
@@ -114,13 +114,13 @@ class BoomGan:
             return c(x)
 
         @add_strat
-        def twocirc(*args, inner_rad=0.3, outer_rad = 1, stretch=4, **kwargs):
+        def twocirc(*args, inner_rad=1, outer_rad = 1, stretch = 5, offset = np.pi/16, **kwargs):
             # walk around in a circle
             c1 = random_circle(inner_rad, self.G.z_dim)
             c2 = random_circle(outer_rad, self.G.z_dim)
             half = int(len(self.beats)/2)
-            x1 = np.linspace(0, 2*np.pi, half)
-            x2 = np.linspace(0, 2*np.pi, len(self.beats)-half)
+            x1 = np.linspace(0, stretch * 2 * np.pi, half) + offset
+            x2 = np.linspace(0,  stretch * 2 * np.pi, len(self.beats)-half)
             y1 = c1(x1)
             y2 = c2(x2)
             y = np.empty(shape=(len(self.beats), self.G.z_dim))
@@ -198,8 +198,9 @@ class BoomGan:
               metavar='DIR')
 @click.option('--in_dir', help='Location of the input images', default="in", type=str, required=True, metavar='DIR')
 @click.option('--mode', help='Latent space vector mode. [rjump/rwalk/orwalk/twocirc]', default="rjump", type=str, required=True)
-def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode):
-    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode)
+@click.option('--stretch', help='How much distortion there is', default=5, type=int, required=True)
+def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch):
+    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch)
     bg.gen_video()
 
 
