@@ -17,37 +17,25 @@ import ffmpeg
 warnings.filterwarnings("ignore", category=Warning)
 
 
-
-
-
 def orthogonalize(normal, non_ortho):
     h = normal * non_ortho
     return non_ortho - normal * h
 
 
-def make_orthonormal_vector(normal):
-    candidates = np.array(shape=(3, 3))
-    candidates[0] = [1, 0, 0]
-    candidates[1] = [0, 1, 0]
-    candidates[2] = [0, 0, 1]
+def make_orthonormal_vector(normal, dims=512):
+    # random unit vector
+    rand_dir = np.random.randn(dims)
 
-    min = 1e20
-    cIndex = 0
-    for i in range(3):
-        p = np.abs(normal * candidates[i])
-        if p < min:
-            min = p
-            cIndex = i
-    result = orthogonalize(normal, candidates[cIndex])
-    return result.normalized()
+    # make orthonormal
+    result = orthogonalize(normal, rand_dir)
+    return result / np.linalg.norm(result)
 
 
 class BoomGan():
 
-
     def __init__(self,
                  network_pkl="https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-r-afhqv2-512x512.pkl",
-                 audio_filename="shiko_short.mp3", truncation_psi=1):
+                 audio_filename="sample.mp3", truncation_psi=1):
         in_dir = "in"
         self.out_dir = "out"
         self.out = os.path.join(self.out_dir, "video.mp4")
@@ -57,7 +45,10 @@ class BoomGan():
         self.batch_size = 10
 
         # load audio
-        self.audio = librosa.load(self.input)[0]
+        try:
+            self.audio = librosa.load(self.input)[0]
+        except FileNotFoundError:
+            print("Filepath invalid")
         self.audio_duration = librosa.get_duration(self.audio)
         self.total_frames = int(np.ceil(self.fps * self.audio_duration))
         bpm, self.beats = librosa.beat.beat_track(self.audio, units="time")
@@ -74,33 +65,46 @@ class BoomGan():
         # setup output
         os.makedirs(self.out_dir, exist_ok=True)
 
-        # generate latent
-        z = torch.from_numpy(np.random.randn(1, self.G.z_dim)).to(self.device)
-        z = torch.ones_like(z) / 2
-
+        # define latent space exploration strategies
         self.strategies = {}
 
         def add_strat(func):
             self.strategies[func.__name__] = func
 
         @add_strat
-        def random_walk(*args, stretch=3, **kwargs):
+        def random(*args, stretch=3, **kwargs):
+            # random walk in latent space
             # generate num_t latent vecs
             latents = np.random.randn(len(self.beats), self.G.z_dim) * stretch
             latents = np.cumsum(latents, axis=0)
             return latents
+
+        @add_strat
+        def ortho(*args, stretch=3, **kwargs):
+            # orthogonal random walk in latent space
+            # initialize first two points
+            latents = [np.random.randn(self.G.z_dim)]
+            rand_dir = np.random.randn(self.G.z_dim)
+            rand_dir /= np.linalg.norm(rand_dir)
+            latents.append(latents[0] + rand_dir * stretch)
+
+            for i in range(2, len(self.beats)):
+                # make new rand dir orthogonal to old one
+                rand_dir = make_orthonormal_vector(rand_dir, self.G.z_dim)
+                latents.append(latents[-1] + rand_dir * stretch)
+
+            return np.array(latents)
 
     def gen_batch(self, latent):
         # generate batch
         ws = self.G.mapping(z=latent, c=None, truncation_psi=self.psi)
         img = self.G.synthesis(ws)
         img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
-        # img = torch.cumsum(img, dim=0)
+        # img = torch.cumsum(img, dim=0) # uncomment for some trippy shit
         return img
 
-    def gen_latent(self, mode="random_walk"):
-        latents = self.strategies[mode]()
-        breakpoint()
+    def gen_latent(self, mode="ortho"):
+        latents = self.strategies[mode](stretch=15)
         interpol_f = interpolate.interp1d(self.beats, latents, axis=0)
         interpolated_latents = interpol_f(np.linspace(0, self.audio_duration, self.total_frames))
         interpolated_latents = torch.from_numpy(interpolated_latents).to(self.device)
