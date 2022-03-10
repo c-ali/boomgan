@@ -15,7 +15,6 @@ import ffmpeg
 import click
 from util.geometry import make_orthonormal_vector, random_circle
 
-
 warnings.filterwarnings("ignore", category=Warning)
 
 
@@ -31,14 +30,11 @@ class BoomGan:
         self.mode = mode
 
         # load audio
-        try:
-            self.audio, sampling_rate = librosa.load(self.input)
-        except FileNotFoundError:
-            print("Filepath invalid")
-
+        self.audio, sample_rate = librosa.load(self.input)
         self.audio_duration = librosa.get_duration(self.audio)
         self.total_frames = int(np.ceil(self.fps * self.audio_duration))
         bpm, self.beats = librosa.beat.beat_track(self.audio, units="time")
+        print("BMP read: %f" %bpm)
         # add first and last frame as beat
         self.beats = np.insert(self.beats, 0, 0)
         self.beats = np.insert(self.beats, -1, self.audio_duration)
@@ -103,8 +99,8 @@ class BoomGan:
             y1 = c1(x1)
             y2 = c2(x2)
             y = np.empty(shape=(len(self.beats), self.G.z_dim))
-            y[::2] = y1
-            y[1::2] = y2
+            y[::2] = y2
+            y[1::2] = y1
             return y
 
     def gen_batch(self, latent):
