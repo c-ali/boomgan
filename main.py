@@ -35,7 +35,7 @@ class BoomGan():
 
     def __init__(self,
                  network_pkl="https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-r-afhqv2-512x512.pkl",
-                 audio_filename="sample.mp3", truncation_psi=1):
+                 audio_filename="shiko_short.mp3", truncation_psi=1):
         in_dir = "in"
         self.out_dir = "out"
         self.out = os.path.join(self.out_dir, "video.mp4")
@@ -43,6 +43,8 @@ class BoomGan():
         self.psi = truncation_psi
         self.fps = 24
         self.batch_size = 10
+        self.stretch = 20
+        self.mode = "rjump"
 
         # load audio
         try:
@@ -55,12 +57,11 @@ class BoomGan():
         # add first and last frame as beat
         self.beats = np.insert(self.beats, 0, 0)
         self.beats = np.insert(self.beats, -1, self.audio_duration)
-
         # load network
         print('Loading networks from "%s"...' % network_pkl)
         self.device = torch.device('cuda')
         with dnnlib.util.open_url(network_pkl) as f:
-            self.G = load_network_pkl(f)['G_ema'].to(self.device)  # type: ignore
+            self.G = load_network_pkl(f)['G_ema'].to(self.device)
 
         # setup output
         os.makedirs(self.out_dir, exist_ok=True)
@@ -72,28 +73,32 @@ class BoomGan():
             self.strategies[func.__name__] = func
 
         @add_strat
-        def random(*args, stretch=3, **kwargs):
+        def rwalk(*args, stretch=3, **kwargs):
             # random walk in latent space
             # generate num_t latent vecs
             latents = np.random.randn(len(self.beats), self.G.z_dim) * stretch
+            latents[0] = self.G.mapping.w_avg.cpu().numpy()
             latents = np.cumsum(latents, axis=0)
             return latents
 
         @add_strat
-        def ortho(*args, stretch=3, **kwargs):
+        def orwalk(*args, stretch=3, **kwargs):
             # orthogonal random walk in latent space
-            # initialize first two points
-            latents = [np.random.randn(self.G.z_dim)]
+            # initialize first two points, start from w_avg
+            latents = [self.G.mapping.w_avg.cpu().numpy()]
             rand_dir = np.random.randn(self.G.z_dim)
             rand_dir /= np.linalg.norm(rand_dir)
             latents.append(latents[0] + rand_dir * stretch)
-
             for i in range(2, len(self.beats)):
                 # make new rand dir orthogonal to old one
                 rand_dir = make_orthonormal_vector(rand_dir, self.G.z_dim)
                 latents.append(latents[-1] + rand_dir * stretch)
-
             return np.array(latents)
+
+        @add_strat
+        def rjump(*args, stretch=3, **kwargs):
+            # randomly jumps between points in latent space
+            return np.random.randn(len(self.beats), self.G.z_dim) * stretch
 
     def gen_batch(self, latent):
         # generate batch
@@ -103,8 +108,8 @@ class BoomGan():
         # img = torch.cumsum(img, dim=0) # uncomment for some trippy shit
         return img
 
-    def gen_latent(self, mode="ortho"):
-        latents = self.strategies[mode](stretch=15)
+    def gen_latent(self):
+        latents = self.strategies[self.mode](stretch=self.stretch)
         interpol_f = interpolate.interp1d(self.beats, latents, axis=0)
         interpolated_latents = interpol_f(np.linspace(0, self.audio_duration, self.total_frames))
         interpolated_latents = torch.from_numpy(interpolated_latents).to(self.device)
