@@ -4,15 +4,14 @@ sys.path.append("stylegan3")
 
 import torch
 import numpy as np
-import PIL.Image
 from stylegan3 import dnnlib
 from stylegan3.legacy import load_network_pkl
 from scipy import interpolate
 from tqdm import tqdm
-import imageio
 import librosa
 import warnings
 import ffmpeg
+import click
 
 warnings.filterwarnings("ignore", category=Warning)
 
@@ -30,22 +29,16 @@ def make_orthonormal_vector(normal, dims=512):
     result = orthogonalize(normal, rand_dir)
     return result / np.linalg.norm(result)
 
-
-class BoomGan():
-
-    def __init__(self,
-                 network_pkl="https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-r-afhqv2-512x512.pkl",
-                 audio_filename="shiko_short.mp3", truncation_psi=1):
-        in_dir = "in"
-        self.out_dir = "out"
+class BoomGan:
+    def __init__(self, network_pkl,audio_file, truncation_psi, in_dir, out_dir, mode):
+        self.out_dir = out_dir
         self.out = os.path.join(self.out_dir, "video.mp4")
-        self.input = os.path.join(in_dir, audio_filename)
+        self.input = os.path.join(in_dir, audio_file)
         self.psi = truncation_psi
         self.fps = 24
         self.batch_size = 10
         self.stretch = 20
-        self.mode = "rjump"
-
+        self.mode = mode
         # load audio
         try:
             self.audio = librosa.load(self.input)[0]
@@ -158,8 +151,18 @@ class BoomGan():
         video = ffmpeg.input(temp_vidpath)
         ffmpeg.concat(video, audio, v=1, a=1).output(self.out, pix_fmt='yuv420p', vcodec=vcodec,
                                                      r=exact_fps).global_args('-y').run()
-
+@click.command()
+@click.option('--network', 'network_pkl',
+              default="https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-r-afhqv2-512x512.pkl",
+              help='Network pickle filename', required=True)
+@click.option('--audio_file', help='Filename of the audio file to use', type=str, required=True)
+@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
+@click.option('--out_dir', help='Where to save the output images', default="out", type=str, required=True, metavar='DIR')
+@click.option('--in_dir', help='Location of the input images', default="in", type=str, required=True, metavar='DIR')
+@click.option('--mode', help='Latent space vector mode. [rjump/rwalk/orwalk]', default="rjump", type=str, required=True)
+def run(network_pkl,audio_file, truncation_psi, in_dir, out_dir, mode):
+    bg = BoomGan(network_pkl,audio_file, truncation_psi, in_dir, out_dir, mode)
+    bg.gen_video()
 
 if __name__ == "__main__":
-    bg = BoomGan()
-    bg.gen_video()
+    run()
