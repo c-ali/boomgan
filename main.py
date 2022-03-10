@@ -4,6 +4,7 @@ sys.path.append("stylegan3")
 
 import torch
 import numpy as np
+from numpy.linalg import norm
 from stylegan3 import dnnlib
 from stylegan3.legacy import load_network_pkl
 from scipy import interpolate
@@ -29,8 +30,20 @@ def make_orthonormal_vector(normal, dims=512):
     result = orthogonalize(normal, rand_dir)
     return result / np.linalg.norm(result)
 
+
+def random_circle(radius, ndim):
+    '''Given a radius, parametrizes a random circle'''
+    n1 = np.random.randn(ndim)
+    n1 /= np.linalg.norm(n1)
+    n2 = make_orthonormal_vector(n1, ndim)
+
+    def circle(theta):
+        return np.repeat(n1[None, :], theta.shape[0], axis=0) * np.cos(theta)[:, None] * radius + np.repeat(n2[None, :], theta.shape[0], axis=0) * np.sin(theta)[:, None] * radius
+    return circle
+
+
 class BoomGan:
-    def __init__(self, network_pkl,audio_file, truncation_psi, in_dir, out_dir, mode):
+    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode):
         self.out_dir = out_dir
         self.out = os.path.join(self.out_dir, "video.mp4")
         self.input = os.path.join(in_dir, audio_file)
@@ -93,6 +106,28 @@ class BoomGan:
             # randomly jumps between points in latent space
             return np.random.randn(len(self.beats), self.G.z_dim) * stretch
 
+        @add_strat
+        def circ(*args, radius=1, **kwargs):
+            # walk around in a circle
+            c = random_circle(radius, self.G.z_dim)
+            x = np.linspace(0, 2*np.pi, len(self.beats))
+            return c(x)
+
+        @add_strat
+        def twocirc(*args, inner_rad=0.3, outer_rad = 1, stretch=4, **kwargs):
+            # walk around in a circle
+            c1 = random_circle(inner_rad, self.G.z_dim)
+            c2 = random_circle(outer_rad, self.G.z_dim)
+            half = int(len(self.beats)/2)
+            x1 = np.linspace(0, 2*np.pi, half)
+            x2 = np.linspace(0, 2*np.pi, len(self.beats)-half)
+            y1 = c1(x1)
+            y2 = c2(x2)
+            y = np.empty(shape=(len(self.beats), self.G.z_dim))
+            y[::2] = y1
+            y[1::2] = y2
+            return y
+
     def gen_batch(self, latent):
         # generate batch
         ws = self.G.mapping(z=latent, c=None, truncation_psi=self.psi)
@@ -151,18 +186,22 @@ class BoomGan:
         video = ffmpeg.input(temp_vidpath)
         ffmpeg.concat(video, audio, v=1, a=1).output(self.out, pix_fmt='yuv420p', vcodec=vcodec,
                                                      r=exact_fps).global_args('-y').run()
+
+
 @click.command()
 @click.option('--network', 'network_pkl',
               default="https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-r-afhqv2-512x512.pkl",
               help='Network pickle filename', required=True)
 @click.option('--audio_file', help='Filename of the audio file to use', type=str, required=True)
 @click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
-@click.option('--out_dir', help='Where to save the output images', default="out", type=str, required=True, metavar='DIR')
+@click.option('--out_dir', help='Where to save the output images', default="out", type=str, required=True,
+              metavar='DIR')
 @click.option('--in_dir', help='Location of the input images', default="in", type=str, required=True, metavar='DIR')
-@click.option('--mode', help='Latent space vector mode. [rjump/rwalk/orwalk]', default="rjump", type=str, required=True)
-def run(network_pkl,audio_file, truncation_psi, in_dir, out_dir, mode):
-    bg = BoomGan(network_pkl,audio_file, truncation_psi, in_dir, out_dir, mode)
+@click.option('--mode', help='Latent space vector mode. [rjump/rwalk/orwalk/twocirc]', default="rjump", type=str, required=True)
+def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode):
+    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode)
     bg.gen_video()
+
 
 if __name__ == "__main__":
     run()
