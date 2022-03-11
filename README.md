@@ -7,9 +7,9 @@ Boomgan features StyleGAN3 latent space exploration synchronized to the beat of 
 
 |              |    |
 :-------------------------:|:-------------------------:
-![Randomly jumping between random latent space vectors (rjump)](rjump.gif) | ![Cutoff rjump on metfaces dataset (rjump 4:)](faces_rjump_4.gif)
-![Jumping between two circles in latent space (twocircle 4:)](twocircle_4.gif) | ![Twocircle method but only fine features are changed (rjump 12:)](twocircle_onlyhigh.gif)
-![Random walk in latent space(rwalk 4:)](rwalk.gif) | ![Orthogonal random walk in latent space (orwalk 4:)](orwalk_4.gif)
+![Randomly jumping between random latent space vectors (rjump)](examples/rjump.gif) | ![Cutoff rjump on metfaces dataset (rjump 4:)](examples/faces_rjump_4.gif)
+![Jumping between two circles in latent space (twocircle 4:)](examples/twocircle_4.gif) | ![Twocircle method but only fine features are changed (rjump 12:)](examples/twocircle_onlyhigh.gif)
+![Random walk in latent space(rwalk 4:)](examples/rwalk.gif) | ![Orthogonal random walk in latent space (orwalk 4:)](examples/orwalk_4.gif)
 
 
 - "rjump": all generated latent space points are random normal.
