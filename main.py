@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore", category=Warning)
 
 
 class BoomGan:
-    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch):
+    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff):
         self.out_dir = out_dir
         self.out = os.path.join(self.out_dir, "video.mp4")
         self.input = os.path.join(in_dir, audio_file)
@@ -28,6 +28,8 @@ class BoomGan:
         self.batch_size = 10
         self.stretch = stretch
         self.mode = mode
+        self.first_batch = None
+        self.latent_cutoff = latent_cutoff
 
         # load audio
         self.audio, sample_rate = librosa.load(self.input)
@@ -106,6 +108,9 @@ class BoomGan:
     def gen_batch(self, latent):
         # generate batch
         ws = self.G.mapping(z=latent, c=None, truncation_psi=self.psi)
+        if self.first_batch is None:
+            self.first_batch =  ws[0,:self.latent_cutoff,:]
+        ws[:,:self.latent_cutoff,:] = self.first_batch
         img = self.G.synthesis(ws)
         img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
         # img = torch.cumsum(img, dim=0) # uncomment for some trippy shit
@@ -174,8 +179,9 @@ class BoomGan:
 @click.option('--in_dir', help='Location of the input images', default="in", type=str, required=True, metavar='DIR')
 @click.option('--mode', help='Latent space vector mode. [rjump/rwalk/orwalk/twocirc]', default="rjump", type=str, required=True)
 @click.option('--stretch', help='How much distortion there is', default=5, type=int, required=True)
-def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch):
-    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch)
+@click.option('--latcut','latent_cutoff', help='Cutoff changes of big gridth in latent space.', default=4, type=int, required=True)
+def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff):
+    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff)
     bg.gen_video()
 
 
