@@ -25,21 +25,27 @@ class BoomGan:
         self.input = os.path.join(in_dir, audio_file)
         self.psi = truncation_psi
         self.fps = 24
-        self.batch_size = 10
+        self.batch_size = 20
         self.stretch = stretch
         self.mode = mode
         self.first_batch = None
         self.latent_cutoff = latent_cutoff
+        self.chroma_bins = 12
 
         # load audio
         self.audio, sample_rate = librosa.load(self.input)
         self.audio_duration = librosa.get_duration(self.audio)
         self.total_frames = int(np.ceil(self.fps * self.audio_duration))
+
+        # process audio
         bpm, self.beats = librosa.beat.beat_track(self.audio, units="time")
         print("BMP read: %f" %bpm)
+        self.chroma = librosa.feature.chroma_stft(self.audio, sr=sample_rate, n_chroma=self.chroma_bins)
+
         # add first and last frame as beat
         self.beats = np.insert(self.beats, 0, 0)
         self.beats = np.insert(self.beats, -1, self.audio_duration)
+
         # load network
         print('Loading networks from "%s"...' % network_pkl)
         self.device = torch.device('cuda')
@@ -107,28 +113,50 @@ class BoomGan:
 
     def gen_batch(self, latent):
         # generate batch
-        ws = self.G.mapping(z=latent, c=None, truncation_psi=self.psi)
+        self.latent_cutoff = 4
+        self.latent_middle = 16
+        latent_base = latent[:, :, 0]
+        latent_pulse = latent[:, :, 1]
+        ws_base = self.G.mapping(z=latent_base, c=None, truncation_psi=self.psi)
+        ws_pulse = self.G.mapping(z=latent_pulse, c=None, truncation_psi=self.psi)
         if self.first_batch is None:
-            self.first_batch =  ws[0,:self.latent_cutoff,:]
-        ws[:,:self.latent_cutoff,:] = self.first_batch
-        img = self.G.synthesis(ws)
+            self.first_batch = ws_base[0,:self.latent_cutoff,:]
+        ws_base[:,:self.latent_cutoff,:] = self.first_batch
+        ws_combined = torch.empty_like(ws_base)
+        ws_combined[:, self.latent_cutoff:self.latent_middle,:] = ws_base[:, self.latent_cutoff:self.latent_middle,:]
+        ws_combined[:, self.latent_middle:17,:] = ws_pulse[:, self.latent_middle:17,:]
+        img = self.G.synthesis(ws_combined)
         img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
         # img = torch.cumsum(img, dim=0) # uncomment for some trippy shit
         return img
 
-    def gen_latent(self):
+    def gen_latent_base(self):
+        # creates base movement in latent space
         latents = self.strategies[self.mode](stretch=self.stretch)
-        interpol_f = interpolate.interp1d(self.beats, latents, axis=0)
+        interpolated_latents = self.interpolate_latents(self.beats, latents)
+        return interpolated_latents
+
+    def gen_latent_pulse(self):
+        # creates a pulsating movement that shifts with the pitch of the music
+        latents = np.repeat(self.chroma, np.ceil(512/self.chroma_bins),axis=0)[:512]
+        latents = np.swapaxes(latents, 0, 1)
+        interpolated_latents = self.interpolate_latents(np.linspace(0,self.audio_duration,latents.shape[0]), latents)
+        return interpolated_latents
+
+    def interpolate_latents(self,x, latents):
+        # interpolates a set of latent vector to the beat
+        interpol_f = interpolate.interp1d(x, latents, axis=0)
         interpolated_latents = interpol_f(np.linspace(0, self.audio_duration, self.total_frames))
         interpolated_latents = torch.from_numpy(interpolated_latents).to(self.device)
-
         return interpolated_latents
 
     def gen_video(self):
         # gen dataset
-        latent_interpol = self.gen_latent()
+        latent_base = self.gen_latent_base()
+        latent_pulse = self.gen_latent_pulse()
+        full_latent = torch.stack([latent_base, latent_pulse], axis=-1)
         print("Computing GAN images...")
-        data_loader = torch.utils.data.DataLoader(latent_interpol, batch_size=self.batch_size)
+        data_loader = torch.utils.data.DataLoader(full_latent, batch_size=self.batch_size)
         batches = []
 
         for i, latent in tqdm(enumerate(data_loader), total=len(data_loader)):
