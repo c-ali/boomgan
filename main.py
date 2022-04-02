@@ -121,8 +121,8 @@ class BoomGan:
         ws_base = self.G.mapping(z=latent_base, c=None, truncation_psi=self.psi)
         ws_pulse = self.G.mapping(z=latent_pulse, c=None, truncation_psi=self.psi)
         # use mask from equalizer
-        base_mask = self.base_eq.repeat_interleave(4).expand(0,2)
-        pulse_mask = self.pulse_eq.repeat_interleave(4).expand(0,2)
+        base_mask = self.base_eq.repeat_interleave(4).unsqueeze(0).unsqueeze(-1)
+        pulse_mask = self.pulse_eq.repeat_interleave(4).unsqueeze(0).unsqueeze(-1)
         #save first frame
         if self.first_batch is None:
             self.first_batch = ws_base[0].repeat(ws_base.shape[0], 1)
