@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore", category=Warning)
 
 
 class BoomGan:
-    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle):
+    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle, offset):
         self.out_dir = out_dir
         self.out = os.path.join(self.out_dir, "video.mp4")
         self.input = os.path.join(in_dir, audio_file)
@@ -32,6 +32,7 @@ class BoomGan:
         self.latent_cutoff = latent_cutoff
         self.latent_middle = latent_middle
         self.chroma_bins = 12
+        self.offset = offset
 
         # load audio
         self.audio, sample_rate = librosa.load(self.input)
@@ -98,7 +99,7 @@ class BoomGan:
             return c(x)
 
         @add_strat
-        def twocirc(*args, inner_rad=1, outer_rad=1, stretch=5, offset=np.pi / 16, **kwargs):
+        def twocirc(*args, inner_rad=1, outer_rad=1, stretch=5, offset=self.offset, **kwargs):
             # walk around in a circle
             c1 = random_circle(inner_rad, self.G.z_dim)
             c2 = random_circle(outer_rad, self.G.z_dim)
@@ -213,8 +214,11 @@ class BoomGan:
               required=True)
 @click.option('--latmid', 'latent_middle', help='Changes in styleblock range latmid:16 are determined by a chromatogram. Set 16 for no freq. response.', default=16, type=click.IntRange(0,16, clamp=True),
               required=True)
-def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle):
-    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle)
+@click.option('--offset', 'offset', help='Angular offset for the inner circle', default=np.pi/16, type=click.FloatRange(0,2*np.pi),
+              required=True)
+
+def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle, offset):
+    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle, offset)
     bg.gen_video()
 
 
