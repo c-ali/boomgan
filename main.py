@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore", category=Warning)
 
 
 class BoomGan:
-    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle, offset):
+    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle, offset, pulse_upper):
         self.out_dir = out_dir
         self.out = os.path.join(self.out_dir, "video.mp4")
         self.input = os.path.join(in_dir, audio_file)
@@ -33,7 +33,8 @@ class BoomGan:
         self.latent_middle = latent_middle
         self.chroma_bins = 12
         self.offset = offset
-
+        self.pulse_upper = pulse_upper
+        
         # load audio
         self.audio, sample_rate = librosa.load(self.input)
         self.audio_duration = librosa.get_duration(self.audio)
@@ -123,8 +124,12 @@ class BoomGan:
             self.first_batch = ws_base[0, :self.latent_cutoff, :]
         ws_combined = torch.empty_like(ws_base)
         ws_combined[:, :self.latent_cutoff, :] = self.first_batch
-        ws_combined[:, self.latent_cutoff:self.latent_middle, :] = ws_base[:, self.latent_cutoff:self.latent_middle, :]
-        ws_combined[:, self.latent_middle:16, :] = ws_pulse[:, self.latent_middle:16, :]
+        if self.pulse_upper:
+            ws_combined[:, self.latent_cutoff:self.latent_middle, :] = ws_base[:, self.latent_cutoff:self.latent_middle, :]
+            ws_combined[:, self.latent_middle:16, :] = ws_pulse[:, self.latent_middle:16, :]
+        else:
+            ws_combined[:, self.latent_cutoff:self.latent_middle, :] = ws_pulse[:, self.latent_cutoff:self.latent_middle, :]
+            ws_combined[:, self.latent_middle:16, :] = ws_base[:, self.latent_middle:16, :]
         img = self.G.synthesis(ws_combined)
         img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
         # img = torch.cumsum(img, dim=0) # uncomment for some trippy shit
@@ -216,9 +221,11 @@ class BoomGan:
               required=True)
 @click.option('--offset', 'offset', help='Angular offset for the inner circle', default=np.pi/16, type=click.FloatRange(0,2*np.pi),
               required=True)
+@click.option('--pulse_upper', 'pulse_upper', help='Pulse controls upper part of style blocks', default=True, type=bool,
+              required=True)
 
-def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle, offset):
-    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle, offset)
+def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle, offset, pulse_upper):
+    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle, offset, pulse_upper)
     bg.gen_video()
 
 
