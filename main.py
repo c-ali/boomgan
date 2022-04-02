@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore", category=Warning)
 
 
 class BoomGan:
-    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff):
+    def __init__(self, network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle):
         self.out_dir = out_dir
         self.out = os.path.join(self.out_dir, "video.mp4")
         self.input = os.path.join(in_dir, audio_file)
@@ -30,6 +30,7 @@ class BoomGan:
         self.mode = mode
         self.first_batch = None
         self.latent_cutoff = latent_cutoff
+        self.latent_middle = latent_middle
         self.chroma_bins = 12
 
         # load audio
@@ -39,7 +40,7 @@ class BoomGan:
 
         # process audio
         bpm, self.beats = librosa.beat.beat_track(self.audio, units="time")
-        print("BMP read: %f" %bpm)
+        print("BMP read: %f" % bpm)
         self.chroma = librosa.feature.chroma_stft(self.audio, sr=sample_rate, n_chroma=self.chroma_bins)
 
         # add first and last frame as beat
@@ -93,17 +94,17 @@ class BoomGan:
         def circ(*args, radius=1, **kwargs):
             # walk around in a circle
             c = random_circle(radius, self.G.z_dim)
-            x = np.linspace(0, 2*np.pi, len(self.beats))
+            x = np.linspace(0, 2 * np.pi, len(self.beats))
             return c(x)
 
         @add_strat
-        def twocirc(*args, inner_rad=1, outer_rad = 1, stretch = 5, offset = np.pi/16, **kwargs):
+        def twocirc(*args, inner_rad=1, outer_rad=1, stretch=5, offset=np.pi / 16, **kwargs):
             # walk around in a circle
             c1 = random_circle(inner_rad, self.G.z_dim)
             c2 = random_circle(outer_rad, self.G.z_dim)
-            half = int(len(self.beats)/2)
+            half = int(len(self.beats) / 2)
             x1 = np.linspace(0, stretch * 2 * np.pi, half) + offset
-            x2 = np.linspace(0,  stretch * 2 * np.pi, len(self.beats)-half)
+            x2 = np.linspace(0, stretch * 2 * np.pi, len(self.beats) - half)
             y1 = c1(x1)
             y2 = c2(x2)
             y = np.empty(shape=(len(self.beats), self.G.z_dim))
@@ -113,18 +114,16 @@ class BoomGan:
 
     def gen_batch(self, latent):
         # generate batch
-        self.latent_cutoff = 4
-        self.latent_middle = 16
         latent_base = latent[:, :, 0]
         latent_pulse = latent[:, :, 1]
         ws_base = self.G.mapping(z=latent_base, c=None, truncation_psi=self.psi)
         ws_pulse = self.G.mapping(z=latent_pulse, c=None, truncation_psi=self.psi)
         if self.first_batch is None:
-            self.first_batch = ws_base[0,:self.latent_cutoff,:]
-        ws_base[:,:self.latent_cutoff,:] = self.first_batch
+            self.first_batch = ws_base[0, :self.latent_cutoff, :]
         ws_combined = torch.empty_like(ws_base)
-        ws_combined[:, self.latent_cutoff:self.latent_middle,:] = ws_base[:, self.latent_cutoff:self.latent_middle,:]
-        ws_combined[:, self.latent_middle:17,:] = ws_pulse[:, self.latent_middle:17,:]
+        ws_combined[:, :self.latent_cutoff, :] = self.first_batch
+        ws_combined[:, self.latent_cutoff:self.latent_middle, :] = ws_base[:, self.latent_cutoff:self.latent_middle, :]
+        ws_combined[:, self.latent_middle:16, :] = ws_pulse[:, self.latent_middle:16, :]
         img = self.G.synthesis(ws_combined)
         img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
         # img = torch.cumsum(img, dim=0) # uncomment for some trippy shit
@@ -137,13 +136,15 @@ class BoomGan:
         return interpolated_latents
 
     def gen_latent_pulse(self):
+        # normalize hist
+        self.chroma /= np.linalg.norm(self.chroma, axis=0, keepdims=True)
         # creates a pulsating movement that shifts with the pitch of the music
-        latents = np.repeat(self.chroma, np.ceil(512/self.chroma_bins),axis=0)[:512]
+        latents = np.repeat(self.chroma, np.ceil(512 / self.chroma_bins), axis=0)[:512]
         latents = np.swapaxes(latents, 0, 1)
-        interpolated_latents = self.interpolate_latents(np.linspace(0,self.audio_duration,latents.shape[0]), latents)
+        interpolated_latents = self.interpolate_latents(np.linspace(0, self.audio_duration, latents.shape[0]), latents)
         return interpolated_latents
 
-    def interpolate_latents(self,x, latents):
+    def interpolate_latents(self, x, latents):
         # interpolates a set of latent vector to the beat
         interpol_f = interpolate.interp1d(x, latents, axis=0)
         interpolated_latents = interpol_f(np.linspace(0, self.audio_duration, self.total_frames))
@@ -205,11 +206,15 @@ class BoomGan:
 @click.option('--out_dir', help='Where to save the output images', default="out", type=str, required=True,
               metavar='DIR')
 @click.option('--in_dir', help='Location of the input images', default="in", type=str, required=True, metavar='DIR')
-@click.option('--mode', help='Latent space vector mode. [rjump/rwalk/orwalk/twocirc]', default="rjump", type=str, required=True)
+@click.option('--mode', help='Latent space vector mode. [rjump/rwalk/orwalk/twocirc]', default="rjump", type=str,
+              required=True)
 @click.option('--stretch', help='How much distortion there is', default=5, type=int, required=True)
-@click.option('--latcut','latent_cutoff', help='Cutoff changes of big gridth in latent space.', default=4, type=int, required=True)
-def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff):
-    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff)
+@click.option('--latcut', 'latent_cutoff', help='Cutoff changes in styleblocks <= latcut. Range: 0-16', default=4, type=click.IntRange(0,16, clamp=True),
+              required=True)
+@click.option('--latmid', 'latent_middle', help='Changes in styleblock range latmid:16 are determined by a chromatogram. Set 16 for no freq. response.', default=16, type=click.IntRange(0,16, clamp=True),
+              required=True)
+def run(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle):
+    bg = BoomGan(network_pkl, audio_file, truncation_psi, in_dir, out_dir, mode, stretch, latent_cutoff, latent_middle)
     bg.gen_video()
 
 
