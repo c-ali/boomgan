@@ -214,7 +214,7 @@ class BoomGan:
 @click.option('--stretch', help='How much distortion there is', default=5, type=int, required=True)
 @click.option('--base_eq', 'base_eq', help='Contribution of beat movement in style bins. Example: 0.1,0.4,0.1,0', default="0,1,1,0", type=str,
               required=True)
-@click.option('--base_eq', 'base_eq', help='Contribution of chroma movement in style bins. Example: 0.1,0.4,0.1,0', default="0,0,0,1", type=str,
+@click.option('--pulse_eq', 'pulse_eq', help='Contribution of chroma movement in style bins. Example: 0.1,0.4,0.1,0', default="0,0,0,1", type=str,
               required=True)
 @click.option('--offset', 'offset', help='Angular offset for the inner circle', default=np.pi/16, type=click.FloatRange(0,2*np.pi),
               required=True)
