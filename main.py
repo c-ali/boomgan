@@ -32,8 +32,9 @@ class BoomGan:
         self.first_batch = None
         self.chroma_bins = 12
         self.offset = offset
-        self.base_eq = torch.Tensor(ast.literal_eval(base_eq))
-        self.pulse_eq = torch.Tensor(ast.literal_eval(pulse_eq))
+        self.device = torch.device('cuda')
+        self.base_eq = torch.Tensor(ast.literal_eval(base_eq)).to(self.device)
+        self.pulse_eq = torch.Tensor(ast.literal_eval(pulse_eq)).to(self.device)
         
         # load audio
         self.audio, sample_rate = librosa.load(self.input)
@@ -51,7 +52,6 @@ class BoomGan:
 
         # load network
         print('Loading networks from "%s"...' % network_pkl)
-        self.device = torch.device('cuda')
         with dnnlib.util.open_url(network_pkl) as f:
             self.G = load_network_pkl(f)['G_ema'].to(self.device)
 
@@ -125,7 +125,7 @@ class BoomGan:
         pulse_mask = self.pulse_eq.repeat_interleave(4).unsqueeze(0).unsqueeze(-1)
         #save first frame
         if self.first_batch is None:
-            self.first_batch = ws_base[0].repeat(ws_base.shape[0], 1)
+            self.first_batch = ws_base[0].unsqueeze(0)
         ws_combined = ws_base * base_mask + ws_pulse * pulse_mask + (1-base_mask-pulse_mask) * self.first_batch
         img = self.G.synthesis(ws_combined)
         img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
