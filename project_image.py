@@ -19,15 +19,18 @@ class LatentProjector():
         self.device = torch.device('cuda')
         input = os.path.join(in_dir, image_file)
         self.out = os.path.join(self.out_dir, "latents_%s.txt" %os.path.splitext(image_file)[0])
-        self.total_epochs = 3000
-        self.save_sample_every = 500
-        max_lr = 2
+        self.total_epochs = 1000
+        self.save_sample_every = 100
+        max_lr = 0.01
 
         # io stuff
         print('Loading networks from "%s"...' % network_pkl)
         with dnnlib.util.open_url(network_pkl) as f:
             self.G = load_network_pkl(f)['G_ema'].to(self.device)
-        
+        # freeze network
+        for param in self.G.parameters():
+                param.requires_grad = False
+
         self.image = Image.open(input)
         self.image = self.image.resize((self.G.img_resolution,self.G.img_resolution))
         self.image = torch.Tensor(np.asarray(self.image)).unsqueeze(0).to(self.device)
@@ -43,6 +46,7 @@ class LatentProjector():
     def project_image(self):
         print("Projecting into latent space...")
         for i in tqdm(range(self.total_epochs)):
+            self.optimizer.zero_grad()
             generated_image = self.G(self.latents, c=None)
             loss = self.loss(self.image, generated_image)
             loss.backward()
@@ -54,6 +58,12 @@ class LatentProjector():
                 out_img = out_img.astype(np.uint8)
                 out_img = Image.fromarray(out_img)
                 out_img.save(os.path.join(self.out_dir,"projected_img.jpg"))
+                print("Loss: %.3f" %loss)
+                #o = self.image[0].detach().transpose(0,2).cpu().numpy()
+                #o *= 255
+                #o = o.astype(np.uint8)
+                #o = Image.fromarray(o)
+                #o.save(os.path.join(self.out_dir,"orig_img.jpg"))
 
         print("Saving latents...")
         # save progress
