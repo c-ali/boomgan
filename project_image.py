@@ -12,7 +12,7 @@ from torch import nn
 from tqdm import tqdm
 from PIL import Image
 import numpy as np
-
+import pickle
 
 class LatentProjector():
     def __init__(self, network_pkl, image_file, in_dir, out_dir):
@@ -20,7 +20,7 @@ class LatentProjector():
         self.out_dir = out_dir
         self.device = torch.device('cuda')
         input = os.path.join(in_dir, image_file)
-        self.out = os.path.join(self.out_dir, "latents_%s.txt" % os.path.splitext(image_file)[0])
+        self.out = os.path.join(self.out_dir, "latents_%s.pkl" % os.path.splitext(image_file)[0])
         self.total_epochs = 5000
         self.save_sample_every = 10
         max_lr = 1
@@ -68,15 +68,12 @@ class LatentProjector():
 
         print("Saving latents...")
         # save progress
-        out = "".join([str(p) + " " for p in self.latents])
-        with open(self.out, 'w') as f:
-            f.write(out)
-            f.close()
+        pickle.dump(self.latents.detach().cpu(), open(self.out, "wb"))
 
 
 @click.command()
 @click.option('--network', 'network_pkl',
-              default='https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan2/versions/1/files/stylegan2-celebahq-256x256.pkl',
+              default='https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-t-ffhq-1024x1024.pkl',
               help='Network pickle filename', required=True)
 @click.option('--image_file', help='Filename of the audio file to use', type=str, required=True)
 @click.option('--out_dir', help='Where to save the output images', default="out", type=str, required=True,
