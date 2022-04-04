@@ -23,7 +23,7 @@ class LatentProjector():
         self.out = os.path.join(self.out_dir, "latents_%s.txt" % os.path.splitext(image_file)[0])
         self.total_epochs = 5000
         self.save_sample_every = 10
-        max_lr = 2
+        max_lr = 1
 
         # io stuff
         print('Loading networks from "%s"...' % network_pkl)
@@ -41,8 +41,7 @@ class LatentProjector():
         self.image = (self.image - 128) / 127.5
         # setup training stuff
         self.loss = nn.MSELoss()
-        self.latents = torch.randn((1, 512)).to(self.device)
-        #self.latents = torch.randn((1,16,512)).to(self.device)
+        self.latents = torch.randn((1,self.G.num_ws,512)).to(self.device)
         self.latents.requires_grad = True
         self.optimizer = torch.optim.Adam([self.latents], lr=max_lr)
         self.scheduler = torch.optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=max_lr, epochs=self.total_epochs,
@@ -52,8 +51,7 @@ class LatentProjector():
         print("Projecting into latent space...")
         for i in tqdm(range(self.total_epochs)):
             self.optimizer.zero_grad()
-            generated_image = self.G(self.latents, c=None)
-            #generated_image = self.G.synthesis(self.latents)
+            generated_image = self.G.synthesis(self.latents)
             loss = self.loss(self.image, generated_image)
             loss.backward()
             self.optimizer.step()
