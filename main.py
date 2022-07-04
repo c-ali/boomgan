@@ -1,6 +1,6 @@
 import os, sys
 
-sys.path.append("stylegan3")
+sys.path.append("/home/chris/workspace/boomstyle/stylegan3")
 
 import torch
 import numpy as np
@@ -26,7 +26,7 @@ class BoomGan:
         self.input = os.path.join(in_dir, audio_file)
         self.psi = truncation_psi
         self.fps = 24
-        self.batch_size = 20
+        self.batch_size = 10
         self.stretch = stretch
         self.mode = mode
         self.first_batch = None
@@ -35,7 +35,11 @@ class BoomGan:
         self.device = torch.device('cuda')
         self.base_eq = torch.Tensor(ast.literal_eval(base_eq)).to(self.device)
         self.pulse_eq = torch.Tensor(ast.literal_eval(pulse_eq)).to(self.device)
-        
+        assert(len(self.base_eq) == 4)
+        assert(len(self.pulse_eq) == 4)
+
+        print(f"Mode: {self.mode}")
+
         # load audio
         self.audio, sample_rate = librosa.load(self.input)
         self.audio_duration = librosa.get_duration(self.audio)
@@ -45,6 +49,7 @@ class BoomGan:
         bpm, self.beats = librosa.beat.beat_track(self.audio, units="time")
         print("BMP read: %f" % bpm)
         self.chroma = librosa.feature.chroma_stft(self.audio, sr=sample_rate, n_chroma=self.chroma_bins)
+        self.chroma = self.chroma * np.log(np.arange(12, 0, -1))[:, None]
 
         # add first and last frame as beat
         self.beats = np.insert(self.beats, 0, 0)
@@ -88,6 +93,20 @@ class BoomGan:
             return np.array(latents)
 
         @add_strat
+        def bwalk(*args, stretch=3, **kwargs):
+            # walk in the ball of radius 1 in latent space
+            start_pt = np.random.randn(self.G.z_dim)
+            start_pt /= np.linalg.norm(start_pt)
+            latents = [start_pt * stretch]
+            for i in range(1, len(self.beats)):
+                # make new rand dir orthogonal to last point
+                rand_dir = make_orthonormal_vector(latents[-1], self.G.z_dim)
+                new_pt = latents[-1] + rand_dir * stretch
+                new_pt /= np.linalg.norm(new_pt)
+                latents.append(new_pt)
+            return np.array(latents)
+
+        @add_strat
         def rjump(*args, stretch=3, **kwargs):
             # randomly jumps between points in latent space
             return np.random.randn(len(self.beats), self.G.z_dim) * stretch
@@ -100,7 +119,7 @@ class BoomGan:
             return c(x)
 
         @add_strat
-        def twocirc(*args, inner_rad=1, outer_rad=1, stretch=5, offset=self.offset, **kwargs):
+        def twocirc(*args, inner_rad=1.0, outer_rad=1.001, stretch=5, offset=self.offset, **kwargs):
             # walk around in a circle
             c1 = random_circle(inner_rad, self.G.z_dim)
             c2 = random_circle(outer_rad, self.G.z_dim)
@@ -121,8 +140,8 @@ class BoomGan:
         ws_base = self.G.mapping(z=latent_base, c=None, truncation_psi=self.psi)
         ws_pulse = self.G.mapping(z=latent_pulse, c=None, truncation_psi=self.psi)
         # use mask from equalizer
-        base_mask = self.base_eq.repeat_interleave(4).unsqueeze(0).unsqueeze(-1)
-        pulse_mask = self.pulse_eq.repeat_interleave(4).unsqueeze(0).unsqueeze(-1)
+        base_mask = self.base_eq.repeat_interleave(5)[:ws_base.shape[1]].unsqueeze(0).unsqueeze(-1)
+        pulse_mask = self.pulse_eq.repeat_interleave(5)[:ws_base.shape[1]].unsqueeze(0).unsqueeze(-1)
         #save first frame
         if self.first_batch is None:
             self.first_batch = ws_base[0].unsqueeze(0)

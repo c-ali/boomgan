@@ -22,8 +22,8 @@ class LatentProjector():
         input = os.path.join(in_dir, image_file)
         self.out = os.path.join(self.out_dir, "latents_%s.pkl" % os.path.splitext(image_file)[0])
         self.total_epochs = 5000
-        self.save_sample_every = 10
-        max_lr = 1
+        self.save_sample_every = 100
+        max_lr = 0.5
 
         # io stuff
         print('Loading networks from "%s"...' % network_pkl)
@@ -52,7 +52,10 @@ class LatentProjector():
         for i in tqdm(range(self.total_epochs)):
             self.optimizer.zero_grad()
             generated_image = self.G.synthesis(self.latents)
-            loss = self.loss(self.image, generated_image)
+            loss = (self.image - generated_image).abs().mean()
+            #loss = self.loss(self.image, generated_image)
+            #diff = self.image - generated_image
+            #loss = (diff[:,:,1:,:] - diff[:,:,:-1,:]).abs().mean() + (diff[:,:,:,1:] - diff[:,:,:,:-1]).abs().mean()
             loss.backward()
             self.optimizer.step()
             self.scheduler.step()
@@ -62,8 +65,7 @@ class LatentProjector():
                 out_img = out_img.to(torch.uint8)
                 out_img = Image.fromarray(out_img.cpu().numpy())
                 out_img.save(os.path.join(self.out_dir, "projected_img.jpg"))
-                print(self.latents.abs().mean())
-                print("Loss: %.3f" % loss)
+                print("Loss: %.4f" % loss)
 
 
         print("Saving latents...")
@@ -73,7 +75,7 @@ class LatentProjector():
 
 @click.command()
 @click.option('--network', 'network_pkl',
-              default='https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-t-ffhq-1024x1024.pkl',
+              default='https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan2/versions/1/files/stylegan2-ffhq-1024x1024.pkl',
               help='Network pickle filename', required=True)
 @click.option('--image_file', help='Filename of the audio file to use', type=str, required=True)
 @click.option('--out_dir', help='Where to save the output images', default="out", type=str, required=True,
